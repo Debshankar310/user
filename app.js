@@ -6,6 +6,8 @@ import multer from 'multer'; // Import multer
 import path from 'path';     // Import path for file paths
 import fs from 'fs';         // Import fs for file system operations
 import dotenv from 'dotenv'; // Import dotenv
+import Task from './model/Task.js';
+import logTaskCompletion from './LogTask.js';
 
 // Load environment variables from .env file FIRST
 dotenv.config();
@@ -71,6 +73,7 @@ app.get('/Users',async (req,res)=>{
 })
 
 app.post('/Register',async (req,res)=>{
+    console.log(req.body)
     const email =req.body.email;
     if(!email) return res.status(400).json({error:"email not given"});
     try{
@@ -94,7 +97,7 @@ app.post('/Login',async (req,res)=>{
         const email=req.body.email;
         const data=await User.findOne({email});
         if(data){
-            const token=jwt.sign({userId:data.email},JWTSECRET,{expiresIn:'1h'})
+            const token=jwt.sign({userId:data._id},JWTSECRET,{expiresIn:'1h'})
             res.json({token});
         }
         else{
@@ -155,6 +158,58 @@ app.post('/upload',upload.single('profilePicture'), (req, res) => {
         path: `/uploads/${req.file.filename}` // Provide a path to access it
     });
 });
+
+app.post('/addTask',authcheck,async (req,res)=>{
+    try{
+        console.log("auth complete");
+        const task= new Task({
+            ...req.body,
+            userId:req.user.userId
+        });
+        await task.save();
+        res.status(201).json(task);
+    }
+    catch(error){
+        console.log(error);
+        res.status(400).send("error adding task");
+    }
+})
+
+app.get('/tasks', authcheck, async (req, res) => {
+  try {
+    const filter = { userId: req.user.userId };
+
+    if (req.query.completed) {
+      filter.completed = req.query.completed === 'true';
+    }
+
+    if (req.query.dueBefore) {
+      filter.dueDate = { $lt: new Date(req.query.dueBefore) };
+    }
+
+    const tasks = await Task.find(filter);
+    res.json(tasks);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+app.patch("/completeTask/:id/complete",authcheck,async (req,res)=>{
+    try{
+        const task=await Task.findOneAndUpdate(
+            {_id:req.params.id,userId:req.user.userId},
+            {completed:true},
+            {new:true}
+        );
+        if(!task)res.send("task not found");
+        logTaskCompletion(task);
+        res.send("task updated to complete");
+    }
+    catch(e){
+        console.log(e);
+        res.status(401).send("error in finding and updating the task");
+    }
+})
 
 // Use PORT from environment variables or default to 8800
 const PORT = process.env.PORT || 8800;
